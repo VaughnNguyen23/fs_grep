@@ -82,7 +82,7 @@ impl Grepper {
 //}
 
 fn main() {
-    let path = PathBuf::from("/Users/vaughnnguyen/dev/");
+    let path = PathBuf::from("/");
     let mut grep = Grepper {
         input_dir: path, 
         entries: Vec::new(), 
