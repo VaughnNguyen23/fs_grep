@@ -1,7 +1,6 @@
 use std::fs::read_dir;
 use std::path::PathBuf;
 
-
 struct Grepper {
     input_dir: PathBuf,
     entries: Vec<PathBuf>,
@@ -9,15 +8,25 @@ struct Grepper {
     files: Vec<PathBuf>,
     //file_types: Vec<String>
 }
+
 impl Grepper {
-    fn expand_path(&self) -> Vec<PathBuf> {
+    fn new(input_dir: PathBuf) -> Grepper {
+        Grepper {
+            input_dir,
+            entries: Vec::new(),
+            dirs: Vec::new(),
+            files: Vec::new(),
+        }
+    }
+
+    fn expand_path(&self) -> Result<Vec<PathBuf>, std::io::Error> {
         let mut entries: Vec<PathBuf> = Vec::new();
-        let dir_contents = read_dir(self.input_dir.clone());
-        for content in dir_contents.unwrap() {
-            let path = content.unwrap();
+        let dir_contents = read_dir(&self.input_dir)?;
+        for content in dir_contents {
+            let path = content?;
             entries.push(path.path());
         }
-        entries
+        Ok(entries)
     }
 
     fn collect_dirs(&self) -> Vec<PathBuf> {
@@ -50,16 +59,16 @@ impl Grepper {
     //    }
     //    println!("{file_ext}")
     //}
-    fn depth_search_files(&self) -> Vec<PathBuf> {
+    fn depth_search_files(&self) -> Result<Vec<PathBuf>, std::io::Error> {
         let mut depth_dirs: Vec<PathBuf> = Vec::new();
-        for dirs in self.dirs.clone() {
-            for dir in read_dir(dirs).unwrap() {
-                depth_dirs.push(dir.unwrap().path()); 
-            } 
+        for dirs in &self.dirs {
+            for dir in read_dir(dirs)? {
+                depth_dirs.push(dir?.path());
+            }
         }
-        depth_dirs
+        Ok(depth_dirs)
     }
-    
+
     fn print(&self) {
         for dir in self.dirs.clone() {
             println!("d- {dir:?}");
@@ -83,26 +92,44 @@ impl Grepper {
 
 fn main() {
     let path = PathBuf::from("/");
-    let mut grep = Grepper {
-        input_dir: path, 
-        entries: Vec::new(), 
-        dirs: Vec::new(), 
-        files: Vec::new(), 
-        //file_types: Vec::new()
-    };
-    let dir_contents = grep.expand_path();
-    grep.entries = dir_contents;
-    grep.dirs = grep.collect_dirs();
-    grep.files = grep.collect_files();
-    grep.dirs = grep.depth_search_files();
-    //grep.entries.clear();
-    grep.entries = grep.dirs.clone();
-    grep.files = grep.collect_files();
-    grep.dirs = grep.collect_dirs();
-    // again
-    grep.entries = grep.dirs.clone();
-    grep.files = grep.collect_files();
-    grep.dirs = grep.collect_dirs();
+    let mut grepper = Grepper::new(path);
+    grepper.expand_path().unwrap();
+    grepper.dirs = grepper.collect_dirs();
+    grepper.files = grepper.collect_files();
+    grepper.depth_search_files().unwrap();
+    grepper.print();
 
-    grep.print();
+    //grep.entries.clear();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs::{self, File};
+    use std::io::Write;
+    // use std::path::PathBuf;
+
+    #[test]
+    fn test_grepper() -> Result<(), std::io::Error> {
+        // Setup: create a temporary directory and files
+        let temp_dir = std::env::temp_dir().join("grepper_test");
+        fs::create_dir_all(&temp_dir)?;
+
+        let file_path = temp_dir.join("test_file.txt");
+        let mut file = File::create(&file_path)?;
+        writeln!(file, "Hello, world!")?;
+
+        // Initialize Grepper
+        let grepper = Grepper::new(temp_dir.clone());
+
+        // Test expand_path
+        let entries = grepper.expand_path()?;
+        assert!(entries.contains(&file_path));
+
+        // Cleanup
+        fs::remove_file(file_path)?;
+        fs::remove_dir(temp_dir)?;
+
+        Ok(())
+    }
 }
