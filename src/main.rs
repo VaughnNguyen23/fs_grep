@@ -1,21 +1,50 @@
 use std::fs::read_dir;
 use std::path::PathBuf;
 
+struct FileContents {
+    file_name: PathBuf,
+    file_contents: String,
+}
+
 struct Grepper {
     input_dir: PathBuf,
     entries: Vec<PathBuf>,
     dirs: Vec<PathBuf>,
     files: Vec<PathBuf>,
+    grep_files: FileContents,
     //file_types: Vec<String>
 }
 
+impl FileContents {
+    fn new(file_name: PathBuf, file_contents: String) -> FileContents {
+        FileContents {
+            file_name,
+            file_contents,
+        }
+    }
+}
+
 impl Grepper {
+    fn read_contents(&self) -> Result<Vec<PathBuf>, std::io::Error> {
+        let mut entries: Vec<PathBuf> = Vec::new();
+        let dir_contents = read_dir(&self.input_dir)?;
+        for content in dir_contents {
+            let path = content?;
+            entries.push(path.path());
+        }
+        Ok(entries)
+    }
+
     fn new(input_dir: PathBuf) -> Grepper {
         Grepper {
             input_dir,
             entries: Vec::new(),
             dirs: Vec::new(),
             files: Vec::new(),
+            grep_files: FileContents {
+                file_name: PathBuf::new(),
+                file_contents: String::new(),
+            },
         }
     }
 
@@ -48,7 +77,6 @@ impl Grepper {
         }
         files
     }
-
     //fn get_file_types() {
     //    let mut file_ext = String::new();
     //    for char in "string.txt".chars() {
@@ -79,21 +107,10 @@ impl Grepper {
     }
 }
 
-//fn get_file_types() {
-//    let mut file_ext = String::new();
-//    for char in "string.txt".chars() {
-//        if char == '.' {
-//            file_ext.push(char);
-//        }
-//        file_ext.push(char);
-//    }
-//    println!("{file_ext}")
-//}
-
 fn main() {
-    let path = PathBuf::from("/");
+    let path = std::env::current_dir().unwrap();
     let mut grepper = Grepper::new(path);
-    grepper.expand_path().unwrap();
+    grepper.entries = grepper.expand_path().unwrap();
     grepper.dirs = grepper.collect_dirs();
     grepper.files = grepper.collect_files();
     grepper.depth_search_files().unwrap();
