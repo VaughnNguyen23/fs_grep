@@ -4,6 +4,7 @@ use std::path::PathBuf;
 struct FileContents {
     file_name: PathBuf,
     file_contents: String,
+    all_files: Vec<PathBuf>,
 }
 
 struct Grepper {
@@ -11,7 +12,7 @@ struct Grepper {
     entries: Vec<PathBuf>,
     dirs: Vec<PathBuf>,
     files: Vec<PathBuf>,
-    grep_files: FileContents,
+    // grep_files: FileContents,
     //file_types: Vec<String>
 }
 
@@ -20,31 +21,37 @@ impl FileContents {
         FileContents {
             file_name,
             file_contents,
+            all_files: Vec::new(),
         }
+    }
+
+    fn read_file(&mut self) -> Result<(), std::io::Error> {
+        let contents = std::fs::read_to_string(&self.file_name)?;
+        self.file_contents = contents;
+        Ok(())
+    }
+
+    fn read_multiple_files(&self) -> Result<(), std::io::Error> {
+        let mut file_contents: Vec<FileContents> = Vec::new();
+        for file in self.all_files.clone() {
+            let contents = std::fs::read_to_string(&file)?;
+            file_contents.push(FileContents::new(file, contents));
+        }
+        Ok(())
+    }
+
+    fn search_whl_str(&self) {
+        todo!();
     }
 }
 
 impl Grepper {
-    fn read_contents(&self) -> Result<Vec<PathBuf>, std::io::Error> {
-        let mut entries: Vec<PathBuf> = Vec::new();
-        let dir_contents = read_dir(&self.input_dir)?;
-        for content in dir_contents {
-            let path = content?;
-            entries.push(path.path());
-        }
-        Ok(entries)
-    }
-
     fn new(input_dir: PathBuf) -> Grepper {
         Grepper {
             input_dir,
             entries: Vec::new(),
             dirs: Vec::new(),
             files: Vec::new(),
-            grep_files: FileContents {
-                file_name: PathBuf::new(),
-                file_contents: String::new(),
-            },
         }
     }
 
@@ -108,15 +115,24 @@ impl Grepper {
 }
 
 fn main() {
-    let path = std::env::current_dir().unwrap();
+    let path = std::env::current_dir().expect("Failed to get current directory");
     let mut grepper = Grepper::new(path);
-    grepper.entries = grepper.expand_path().unwrap();
+
+    grepper.entries = grepper.expand_path().expect("Failed to expand path");
     grepper.dirs = grepper.collect_dirs();
     grepper.files = grepper.collect_files();
-    grepper.depth_search_files().unwrap();
-    grepper.print();
+    grepper
+        .depth_search_files()
+        .expect("Failed to perform depth search for files");
 
-    //grep.entries.clear();
+    for file in &grepper.files {
+        let mut file_contents = FileContents::new(file.clone(), String::new());
+        file_contents.read_file().expect("Failed to read file");
+        println!(
+            "File: {:?}\nContents:\n{}",
+            file_contents.file_name, file_contents.file_contents
+        );
+    }
 }
 
 #[cfg(test)]
@@ -137,11 +153,21 @@ mod tests {
         writeln!(file, "Hello, world!")?;
 
         // Initialize Grepper
-        let grepper = Grepper::new(temp_dir.clone());
+        let mut grepper = Grepper::new(temp_dir.clone());
 
         // Test expand_path
-        let entries = grepper.expand_path()?;
-        assert!(entries.contains(&file_path));
+        grepper.entries = grepper.expand_path()?;
+        grepper.dirs = grepper.collect_dirs();
+        grepper.files = grepper.collect_files();
+
+        assert!(grepper.files.contains(&file_path));
+
+        // Test reading file contents
+        for file in &grepper.files {
+            let mut file_contents = FileContents::new(file.clone(), String::new());
+            file_contents.read_file()?;
+            assert_eq!(file_contents.file_contents, "Hello, world!\n");
+        }
 
         // Cleanup
         fs::remove_file(file_path)?;
