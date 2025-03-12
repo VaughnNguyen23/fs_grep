@@ -1,4 +1,5 @@
-use std::fs::read_dir;
+use std::fs::{File, read_dir};
+use std::io::Write;
 use std::path::PathBuf;
 
 struct FileContents {
@@ -28,6 +29,12 @@ impl FileContents {
     fn read_file(&mut self) -> Result<(), std::io::Error> {
         let contents = std::fs::read_to_string(&self.file_name)?;
         self.file_contents = contents;
+        Ok(())
+    }
+
+    fn write_file(&self) -> Result<(), std::io::Error> {
+        let mut file = File::create(&self.file_name)?;
+        file.write_all(self.file_contents.as_bytes())?;
         Ok(())
     }
 
@@ -128,6 +135,7 @@ fn main() {
     for file in &grepper.files {
         let mut file_contents = FileContents::new(file.clone(), String::new());
         file_contents.read_file().expect("Failed to read file");
+
         println!(
             "File: {:?}\nContents:\n{}",
             file_contents.file_name, file_contents.file_contents
