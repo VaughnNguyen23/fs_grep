@@ -1,60 +1,44 @@
+use std::env;
 use std::fs::{File, read_dir};
-use std::io::Write;
-use std::path::PathBuf;
+use std::io::{self, BufRead, BufReader};
+use std::path::{Path, PathBuf};
 
 struct FileContents {
-    file_name: PathBuf,
-    file_contents: String,
-    all_files: Vec<PathBuf>,
+    query: String,
+    files: Vec<PathBuf>,
 }
 
-struct Grepper {
+impl FileContents {
+    fn new(query: String, files: Vec<PathBuf>) -> FileContents {
+        FileContents { query, files }
+    }
+
+    fn search_files(&self) -> io::Result<()> {
+        for file in &self.files {
+            let file_to_read = File::open(file)?;
+            let reader = BufReader::new(file_to_read);
+
+            for (index, line) in reader.lines().enumerate() {
+                let line = line?;
+                if line.contains(&self.query) {
+                    println!("{}:{}: {}", file.display(), index + 1, line);
+                }
+            }
+        }
+
+        Ok(())
+    }
+}
+
+struct ParseDirs {
     input_dir: PathBuf,
     entries: Vec<PathBuf>,
     dirs: Vec<PathBuf>,
     files: Vec<PathBuf>,
-    // grep_files: FileContents,
-    //file_types: Vec<String>
 }
-
-impl FileContents {
-    fn new(file_name: PathBuf, file_contents: String) -> FileContents {
-        FileContents {
-            file_name,
-            file_contents,
-            all_files: Vec::new(),
-        }
-    }
-
-    fn read_file(&mut self) -> Result<(), std::io::Error> {
-        let contents = std::fs::read_to_string(&self.file_name)?;
-        self.file_contents = contents;
-        Ok(())
-    }
-
-    fn write_file(&self) -> Result<(), std::io::Error> {
-        let mut file = File::create(&self.file_name)?;
-        file.write_all(self.file_contents.as_bytes())?;
-        Ok(())
-    }
-
-    fn read_multiple_files(&self) -> Result<(), std::io::Error> {
-        let mut file_contents: Vec<FileContents> = Vec::new();
-        for file in self.all_files.clone() {
-            let contents = std::fs::read_to_string(&file)?;
-            file_contents.push(FileContents::new(file, contents));
-        }
-        Ok(())
-    }
-
-    fn search_whl_str(&self) {
-        todo!();
-    }
-}
-
-impl Grepper {
-    fn new(input_dir: PathBuf) -> Grepper {
-        Grepper {
+impl ParseDirs {
+    fn new(input_dir: PathBuf) -> ParseDirs {
+        ParseDirs {
             input_dir,
             entries: Vec::new(),
             dirs: Vec::new(),
@@ -91,16 +75,7 @@ impl Grepper {
         }
         files
     }
-    //fn get_file_types() {
-    //    let mut file_ext = String::new();
-    //    for char in "string.txt".chars() {
-    //        if char == '.' {
-    //            file_ext.push(char);
-    //        }
-    //        file_ext.push(char);
-    //    }
-    //    println!("{file_ext}")
-    //}
+
     fn depth_search_files(&self) -> Result<Vec<PathBuf>, std::io::Error> {
         let mut depth_dirs: Vec<PathBuf> = Vec::new();
         for dirs in &self.dirs {
@@ -123,7 +98,7 @@ impl Grepper {
 
 fn main() {
     let path = std::env::current_dir().expect("Failed to get current directory");
-    let mut grepper = Grepper::new(path);
+    let mut grepper = ParseDirs::new(path);
 
     grepper.entries = grepper.expand_path().expect("Failed to expand path");
     grepper.dirs = grepper.collect_dirs();
@@ -131,56 +106,71 @@ fn main() {
     grepper
         .depth_search_files()
         .expect("Failed to perform depth search for files");
+    grepper.print();
 
-    for file in &grepper.files {
-        let mut file_contents = FileContents::new(file.clone(), String::new());
-        file_contents.read_file().expect("Failed to read file");
+    let args: Vec<String> = env::args().collect();
+    if args.len() < 3 {
+        eprintln!("usage: {} <query> <file1> <file2> ...", args[0]);
+        std::process::exit(1);
+    }
 
-        println!(
-            "File: {:?}\nContents:\n{}",
-            file_contents.file_name, file_contents.file_contents
-        );
+    let query = args[1].clone();
+
+    let file_contents = FileContents::new(query, grepper.files);
+
+    if let Err(e) = file_contents.search_files() {
+        eprintln!("application error: {}", e);
+        std::process::exit(1);
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::fs::{self, File};
     use std::io::Write;
-    // use std::path::PathBuf;
+    use std::process::Command;
+    use tempdir::TempDir;
 
     #[test]
-    fn test_grepper() -> Result<(), std::io::Error> {
-        // Setup: create a temporary directory and files
-        let temp_dir = std::env::temp_dir().join("grepper_test");
-        fs::create_dir_all(&temp_dir)?;
+    fn test_search_single_file() {
+        let dir = TempDir::new("test").unwrap();
+        let file_path = dir.path().join("testfile.txt");
+        let mut file = File::create(&file_path).unwrap();
+        writeln!(file, "This is a test file.").unwrap();
+        writeln!(file, "It contains some test data.").unwrap();
+        writeln!(file, "Searching for a string.").unwrap();
 
-        let file_path = temp_dir.join("test_file.txt");
-        let mut file = File::create(&file_path)?;
-        writeln!(file, "Hello, world!")?;
+        let output = Command::new(env!("CARGO_BIN_EXE_your_binary_name"))
+            .arg("test")
+            .arg(file_path.to_str().unwrap())
+            .output()
+            .expect("Failed to execute command");
 
-        // Initialize Grepper
-        let mut grepper = Grepper::new(temp_dir.clone());
+        assert!(output.status.success());
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(stdout.contains("1: This is a test file."));
+    }
 
-        // Test expand_path
-        grepper.entries = grepper.expand_path()?;
-        grepper.dirs = grepper.collect_dirs();
-        grepper.files = grepper.collect_files();
+    #[test]
+    fn test_search_multiple_files() {
+        let dir = tempdir().unwrap();
+        let file_path1 = dir.path().join("testfile1.txt");
+        let file_path2 = dir.path().join("testfile2.txt");
+        let mut file1 = File::create(&file_path1).unwrap();
+        let mut file2 = File::create(&file_path2).unwrap();
+        writeln!(file1, "This is the first test file.").unwrap();
+        writeln!(file2, "This is the second test file.").unwrap();
+        writeln!(file2, "It contains the search string.").unwrap();
 
-        assert!(grepper.files.contains(&file_path));
+        let output = Command::new(env!("main.rs"))
+            .arg("search")
+            .arg(file_path1.to_str().unwrap())
+            .arg(file_path2.to_str().unwrap())
+            .output()
+            .expect("Failed to execute command");
 
-        // Test reading file contents
-        for file in &grepper.files {
-            let mut file_contents = FileContents::new(file.clone(), String::new());
-            file_contents.read_file()?;
-            assert_eq!(file_contents.file_contents, "Hello, world!\n");
-        }
-
-        // Cleanup
-        fs::remove_file(file_path)?;
-        fs::remove_dir(temp_dir)?;
-
-        Ok(())
+        assert!(output.status.success());
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(stdout.contains("2: It contains the search string."));
     }
 }
