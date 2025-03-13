@@ -1,19 +1,24 @@
 use std::env;
 use std::fs::{File, read_dir};
 use std::io::{self, BufRead, BufReader};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 struct FileContents {
     query: String,
     files: Vec<PathBuf>,
+    matches: Vec<String>,
 }
 
 impl FileContents {
     fn new(query: String, files: Vec<PathBuf>) -> FileContents {
-        FileContents { query, files }
+        FileContents {
+            query,
+            files,
+            matches: Vec::new(),
+        }
     }
 
-    fn search_files(&self) -> io::Result<()> {
+    fn search_files(&mut self) -> io::Result<()> {
         for file in &self.files {
             let file_to_read = File::open(file)?;
             let reader = BufReader::new(file_to_read);
@@ -21,6 +26,7 @@ impl FileContents {
             for (index, line) in reader.lines().enumerate() {
                 let line = line?;
                 if line.contains(&self.query) {
+                    self.matches.push(line.clone());
                     println!("{}:{}: {}", file.display(), index + 1, line);
                 }
             }
@@ -97,6 +103,7 @@ impl ParseDirs {
 }
 
 fn main() {
+    let args: Vec<String> = env::args().collect();
     let path = std::env::current_dir().expect("Failed to get current directory");
     let mut grepper = ParseDirs::new(path);
 
@@ -108,69 +115,58 @@ fn main() {
         .expect("Failed to perform depth search for files");
     grepper.print();
 
-    let args: Vec<String> = env::args().collect();
-    if args.len() < 3 {
-        eprintln!("usage: {} <query> <file1> <file2> ...", args[0]);
-        std::process::exit(1);
-    }
+    // if args.len() < 3 {
+    //     eprintln!("usage: {} <query> <file1> <file2> ...", args[0]);
+    //     std::process::exit(1);
+    // }
 
     let query = args[1].clone();
 
-    let file_contents = FileContents::new(query, grepper.files);
+    let mut file_contents = FileContents::new(query, grepper.files);
 
     if let Err(e) = file_contents.search_files() {
         eprintln!("application error: {}", e);
         std::process::exit(1);
     }
+    println!("{:?}", file_contents.matches);
 }
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use std::fs::{self, File};
     use std::io::Write;
-    use std::process::Command;
-    use tempdir::TempDir;
+    use tempfile::tempdir;
 
     #[test]
-    fn test_search_single_file() {
-        let dir = TempDir::new("test").unwrap();
-        let file_path = dir.path().join("testfile.txt");
+    fn test_file_contents_search() {
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("test.txt");
         let mut file = File::create(&file_path).unwrap();
-        writeln!(file, "This is a test file.").unwrap();
-        writeln!(file, "It contains some test data.").unwrap();
-        writeln!(file, "Searching for a string.").unwrap();
+        writeln!(file, "This is a test file.\nAnother line with test query.").unwrap();
 
-        let output = Command::new(env!("CARGO_BIN_EXE_your_binary_name"))
-            .arg("test")
-            .arg(file_path.to_str().unwrap())
-            .output()
-            .expect("Failed to execute command");
+        let query = "test".to_string();
+        let files = vec![file_path];
+        let mut file_contents = FileContents::new(query, files);
 
-        assert!(output.status.success());
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        assert!(stdout.contains("1: This is a test file."));
+        file_contents.search_files().unwrap();
+        assert_eq!(file_contents.matches.len(), 2);
     }
 
     #[test]
-    fn test_search_multiple_files() {
+    fn test_parse_dirs() {
         let dir = tempdir().unwrap();
-        let file_path1 = dir.path().join("testfile1.txt");
-        let file_path2 = dir.path().join("testfile2.txt");
-        let mut file1 = File::create(&file_path1).unwrap();
-        let mut file2 = File::create(&file_path2).unwrap();
-        writeln!(file1, "This is the first test file.").unwrap();
-        writeln!(file2, "This is the second test file.").unwrap();
-        writeln!(file2, "It contains the search string.").unwrap();
+        let subdir_path = dir.path().join("subdir");
+        fs::create_dir(&subdir_path).unwrap();
+        let file_path = dir.path().join("test.txt");
+        File::create(&file_path).unwrap();
 
-        let output = Command::new(env!("main.rs"))
-            .arg("search")
-            .arg(file_path1.to_str().unwrap())
-            .arg(file_path2.to_str().unwrap())
-            .output()
-            .expect("Failed to execute command");
+        let mut parser = ParseDirs::new(dir.path().to_path_buf());
+        parser.entries = parser.expand_path().unwrap();
+        parser.dirs = parser.collect_dirs();
+        parser.files = parser.collect_files();
 
-        assert!(output.status.success());
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        assert!(stdout.contains("2: It contains the search string."));
+        assert_eq!(parser.dirs.len(), 1);
+        assert_eq!(parser.files.len(), 1);
     }
 }

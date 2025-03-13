@@ -6,3 +6,4 @@ edition = "2024"
 [dependencies]
 assert_cmd = "2.0.16"
 tempdir = "0.3.7"
+tempfile = "3.18.0"
