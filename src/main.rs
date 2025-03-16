@@ -1,49 +1,45 @@
 use std::env;
 use std::fs::{File, read_dir};
-use std::io::{self, BufRead, BufReader};
+use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 
 struct FileContents {
     query: String,
     files: Vec<PathBuf>,
-    dirs: Vec<PathBuf>,
     matches: Vec<String>,
 }
 
 impl FileContents {
-    fn new(query: String, files: Vec<PathBuf>, dirs: Vec<PathBuf>) -> FileContents {
+    fn new(query: String, files: Vec<PathBuf>) -> FileContents {
         FileContents {
             query,
             files,
-            dirs,
             matches: Vec::new(),
         }
     }
+    // fn clear_files(&mut self) {
+    //     self.files.clear();
+    // }
 
-    fn search_files(&mut self) -> io::Result<()> {
+    fn parse_files(&mut self) {
         for file in &self.files {
-            let file_to_read = File::open(file)?;
-            let reader = BufReader::new(file_to_read);
-
-            for (index, line) in reader.lines().enumerate() {
-                let line = line?;
+            let f = File::open(file).expect("Failed to open file");
+            let reader = BufReader::new(f);
+            for line in reader.lines() {
+                let line = line.expect("Failed to read line");
                 if line.contains(&self.query) {
-                    self.matches.push(line.clone());
-                    println!("{}:{}: {}", file.display(), index + 1, line);
+                    self.matches.push(line);
                 }
             }
         }
+    }
 
-        Ok(())
+    fn print_matches(&self) {
+        for line in &self.matches {
+            println!("{}", line);
+        }
     }
 }
-
-// struct ParseDirs {
-//     input_dir: PathBuf,
-//     entries: Vec<PathBuf>,
-//     dirs: Vec<PathBuf>,
-//     files: Vec<PathBuf>,
-// }
 
 struct DirContents {
     dir: PathBuf,
@@ -78,102 +74,89 @@ impl DirContents {
 
         Ok(())
     }
+    fn print_dir_contents(&self) {
+        println!("Contents of {:?}", self.dir);
+        for file in &self.files {
+            println!("--f{:?}", file);
+        }
+        for dir in &self.child_dirs {
+            println!("-d {:?}", dir);
+        }
+        for etc in &self.etc {
+            println!("-f{:?}", etc);
+        }
+    }
 }
 
-// impl ParseDirs {
-//     fn new(input_dir: PathBuf) -> ParseDirs {
-//         ParseDirs {
-//             input_dir,
-//             entries: Vec::new(),
-//             dirs: Vec::new(),
-//             files: Vec::new(),
-//         }
-//     }
-//
-//     fn expand_path(&self) -> Result<Vec<PathBuf>, std::io::Error> {
-//         let mut entries: Vec<PathBuf> = Vec::new();
-//         let dir_contents = read_dir(&self.input_dir)?;
-//         for content in dir_contents {
-//             let path = content?;
-//             entries.push(path.path());
-//         }
-//         Ok(entries)
-//     }
-//
-//     fn collect_dirs(&self) -> Vec<PathBuf> {
-//         let mut dirs: Vec<PathBuf> = Vec::new();
-//         for dir in self.entries.clone() {
-//             if dir.is_dir() {
-//                 dirs.push(dir);
-//             }
-//         }
-//         dirs
-//     }
-//
-//     fn collect_files(&self) -> Vec<PathBuf> {
-//         let mut files: Vec<PathBuf> = Vec::new();
-//         for file in self.entries.clone() {
-//             if file.is_file() {
-//                 files.push(file);
-//             }
-//         }
-//         files
-//     }
-//
-//     fn depth_search_files(&self) -> Result<Vec<PathBuf>, std::io::Error> {
-//         let mut depth_dirs: Vec<PathBuf> = Vec::new();
-//         for dirs in &self.dirs {
-//             for dir in read_dir(dirs)? {
-//                 depth_dirs.push(dir?.path());
-//             }
-//         }
-//         Ok(depth_dirs)
-//     }
-//
-//     fn print(&self) {
-//         for dir in self.dirs.clone() {
-//             println!("d- {dir:?}");
-//         }
-//         for file in self.files.clone() {
-//             println!("f- {file:?}")
-//         }
-//     }
-// }
 fn main() {
-    // let args: Vec<String> = env::args().collect();
+    let args: Vec<String> = env::args().collect();
     let path = std::env::current_dir().expect("Failed to get current directory");
     let mut dir_contents = DirContents::new(path);
+    let mut file_contents = FileContents::new(args[1].clone(), dir_contents.files.clone());
     dir_contents.expand_path().unwrap();
-    for file in dir_contents.files {
-        println!("--f{:?}", file);
-    }
-    for dir in dir_contents.child_dirs {
-        println!("-d {:?}", dir);
-    }
-    for etc in dir_contents.etc {
-        println!("-f{:?}", etc);
-    }
-    // let mut grepper = ParseDirs::new(path);
+    dir_contents.print_dir_contents();
+    file_contents.parse_files();
+    file_contents.print_matches();
+}
 
-    // grepper.entries = grepper.expand_path().expect("Failed to expand path");
-    // grepper.dirs = grepper.collect_dirs();
-    // grepper.files = grepper.collect_files();
-    // grepper
-    //     .depth_search_files()
-    //     .expect("Failed to perform depth search for files");
-    // grepper.print();
-    //
-    // if args.len() < 3 {
-    //     eprintln!("usage: {} <query> <file1> <file2> ...", args[0]);
-    //     std::process::exit(1);
-    // }
-    // let query = args[1].clone();
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs::{self, File};
+    use std::io::Write;
+    use std::path::Path;
 
-    // let mut file_contents = FileContents::new(query, grepper.files, grepper.dirs);
-    //
-    // if let Err(e) = file_contents.search_files() {
-    //     eprintln!("application error: {}", e);
-    //     std::process::exit(1);
-    // }
-    // println!("{:?}", file_contents.matches);
+    #[test]
+    fn test_file_contents_new() {
+        let query = String::from("test");
+        let files = vec![PathBuf::from("test_file.txt")];
+        let fc = FileContents::new(query.clone(), files.clone());
+        assert_eq!(fc.query, query);
+        assert_eq!(fc.files, files);
+        assert!(fc.matches.is_empty());
+    }
+
+    #[test]
+    fn test_file_contents_parse_files() {
+        let query = String::from("test");
+        let file_path = Path::new("test_file.txt");
+        let mut file = File::create(&file_path).unwrap();
+        writeln!(file, "this is a test line").unwrap();
+        writeln!(file, "this is another line").unwrap();
+
+        let files = vec![file_path.to_path_buf()];
+        let mut fc = FileContents::new(query.clone(), files);
+        fc.parse_files();
+        assert_eq!(fc.matches.len(), 1);
+        assert!(fc.matches[0].contains(&query));
+
+        fs::remove_file(file_path).unwrap();
+    }
+
+    #[test]
+    fn test_dir_contents_new() {
+        let dir = PathBuf::from("test_dir");
+        let dc = DirContents::new(dir.clone());
+        assert_eq!(dc.dir, dir);
+        assert!(dc.files.is_empty());
+        assert!(dc.child_dirs.is_empty());
+        assert!(dc.etc.is_empty());
+    }
+
+    #[test]
+    fn test_dir_contents_expand_path() {
+        let dir_path = Path::new("test_dir");
+        fs::create_dir(dir_path).unwrap();
+        let file_path = dir_path.join("test_file.txt");
+        File::create(&file_path).unwrap();
+
+        let mut dc = DirContents::new(dir_path.to_path_buf());
+        dc.expand_path().unwrap();
+        assert_eq!(dc.files.len(), 1);
+        assert!(dc.child_dirs.is_empty());
+        assert!(dc.etc.is_empty());
+
+        fs::remove_file(file_path).unwrap();
+        fs::remove_dir(dir_path).unwrap();
+    }
 }
